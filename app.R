@@ -6,11 +6,9 @@ library(ggrepel)
 
 player_values <- dp_values("values-players.csv")
 players <- player_values$player
-print(player_values)
 
 ui <- fluidPage(
     titlePanel("Value vs ECR"),
-
     sidebarLayout(
         sidebarPanel(
             selectInput("player", "Player", choices = players, multiple = TRUE)
@@ -21,10 +19,8 @@ ui <- fluidPage(
     )
 )
 
-# Define server logic required to draw a histogram
 server <- function(input, output) {
     output$graph <- renderPlot({
-        print(player_values)
         values <- player_values %>%
             filter(player %in% input$player) %>%
             select(player, value_2qb, ecr_2qb)
