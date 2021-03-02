@@ -27,8 +27,6 @@ server <- function(input, output) {
 
         values %>%
             ggplot(aes(x = ecr_2qb, y = value_2qb)) +
-            geom_hline(yintercept = mean(values$ecr_2qb), color = "red", linetype = "dashed", alpha = 0.5) +
-            geom_vline(xintercept = mean(values$value_2qb), color = "red", linetype = "dashed", alpha = 0.5) +
             geom_point(alpha = .6) +
             geom_text_repel(aes(label = player)) +
             stat_smooth(geom = 'line', alpha = 0.5, se = FALSE, method = 'lm') +
