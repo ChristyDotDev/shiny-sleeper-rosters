@@ -1,40 +1,50 @@
 library(shiny)
+library(ffscrapr)
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
 
-# Define UI for application that draws a histogram
+player_values <- dp_values("values-players.csv")
+players <- player_values$player
+print(player_values)
+
 ui <- fluidPage(
+    titlePanel("Value vs ECR"),
 
-    # Application title
-    titlePanel("Old Faithful Geyser Data"),
-
-    # Sidebar with a slider input for number of bins 
     sidebarLayout(
         sidebarPanel(
-            sliderInput("bins",
-                        "Number of bins:",
-                        min = 1,
-                        max = 50,
-                        value = 30)
+            selectInput("player", "Player", choices = players, multiple = TRUE)
         ),
-
-        # Show a plot of the generated distribution
         mainPanel(
-           plotOutput("distPlot")
+           plotOutput("graph")
         )
     )
 )
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
+    output$graph <- renderPlot({
+        print(player_values)
+        values <- player_values %>%
+            filter(player %in% input$player) %>%
+            select(player, value_2qb, ecr_2qb)
 
-    output$distPlot <- renderPlot({
-        # generate bins based on input$bins from ui.R
-        x    <- faithful[, 2]
-        bins <- seq(min(x), max(x), length.out = input$bins + 1)
-
-        # draw the histogram with the specified number of bins
-        hist(x, breaks = bins, col = 'darkgray', border = 'white')
+        values %>%
+            ggplot(aes(x = ecr_2qb, y = value_2qb)) +
+            geom_hline(yintercept = mean(values$ecr_2qb), color = "red", linetype = "dashed", alpha = 0.5) +
+            geom_vline(xintercept = mean(values$value_2qb), color = "red", linetype = "dashed", alpha = 0.5) +
+            geom_point(alpha = .6) +
+            geom_text_repel(aes(label = player)) +
+            stat_smooth(geom = 'line', alpha = 0.5, se = FALSE, method = 'lm') +
+            labs(x = "ECR",
+                 y = "Trade Value",
+                 caption = "Data: DynastyProcess") +
+            theme_bw() +
+            theme(
+                aspect.ratio = 9 / 16,
+                plot.title = element_text(size = 14, hjust = 0.5, face = "bold")
+            ) + xlim(0, max(values$ecr_2qb, na.rm = TRUE) + 5)
     })
 }
 
-# Run the application 
 shinyApp(ui = ui, server = server)
