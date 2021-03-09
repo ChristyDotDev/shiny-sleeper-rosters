@@ -3,6 +3,12 @@ library(ffscrapr)
 library(tidyverse)
 library(ggplot2)
 library(ggrepel)
+#remotes::install_github("dynastyprocess/fpscrapr")
+library(fpscrapr)
+
+ranks <- fp_rankings(page = "consensus-cheatsheets", sport = "nfl") %>%
+    select(player_id, player_name, player_team_id, pos_rank, tier)
+print(ranks)
 
 sleeper_league_id <- 0 #FIXME - configurable or take it in through a form
 
