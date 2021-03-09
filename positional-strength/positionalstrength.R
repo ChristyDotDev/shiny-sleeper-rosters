@@ -7,7 +7,11 @@ library(ggrepel)
 library(fpscrapr)
 
 fpRanks <- fp_rankings(page = "consensus-cheatsheets", sport = "nfl") %>%
-    select(player_id, pos_rank)
+    mutate(pos_ecr = as.integer(gsub(".*?([0-9]+).*", "\\1", pos_rank))  ) %>%
+    select(player_id, pos_ecr)
+dynEcr <- fp_rankings(page = "dynasty-overall", sport = "nfl") %>%
+    mutate(dyn_pos_ecr = as.integer(gsub(".*?([0-9]+).*", "\\1", pos_rank))  ) %>%
+    select(player_id, dyn_pos_ecr)
 
 sleeper_league_id <- 649923060580864000
 
@@ -22,9 +26,8 @@ rosters <- ff_rosters(league) %>%
     filter(!is.na(fp_id)) %>%
     mutate(fp_id = as.integer(fp_id)) %>%
     inner_join(fpRanks, by = c("fp_id"="player_id")) %>%
-    mutate(pos_ecr_rank = as.integer(gsub(".*?([0-9]+).*", "\\1", pos_rank))  ) %>%
-    select(franchise_name, player_name, team, age, pos.x, value_2qb, pos_ecr_rank)
-print(rosters)
+    inner_join(dynEcr, by = c("fp_id"="player_id")) %>%
+    select(franchise_name, player_name, team, age, pos.x, value_2qb, pos_ecr, dyn_pos_ecr)
 
 teams <- unique(rosters$franchise_name)
     
@@ -33,12 +36,16 @@ ui <- fluidPage(
 
     sidebarLayout(
         sidebarPanel(
-            selectInput("team", "Team", choices = teams, multiple = FALSE),
-            checkboxInput("startersOnly", "Starters Only", value = FALSE)
+            selectInput("team", "Team", choices = teams, multiple = FALSE)
         ),
         mainPanel(
-           plotOutput("graph"),
-           tableOutput("tradeTargets")
+            "Total value in position on roster (with league min and max)",
+            checkboxInput("startersOnly", "Starters Only", value = FALSE),
+            plotOutput("graph"),
+            "Bench players in the league who could start for you this year",
+            tableOutput("tradeTargets"),
+            "Top valued bench players (Season ECR and Dynasty ECR is outside starting range)",
+            tableOutput("tradeAway")
         )
     )
 )
@@ -82,12 +89,32 @@ server <- function(input, output) {
             geom_errorbar( aes(x=worst$pos.x, ymin=worst$pos_value, ymax=best$pos_value), width=0.4, colour="orange", alpha=0.9, size=1.3)
     })
     output$tradeTargets = renderTable({
+        rosterRanks <- rosters %>%
+            filter(franchise_name == input$team) %>%
+            group_by(pos.x) %>%
+            filter(roster_pos_rank <= count) %>%
+            summarise(worstStarter=max(pos_ecr))
+
         potentialTradeTargets <- rosters %>%
+            left_join(rosterRanks, by = c("pos.x" = "pos.x")) %>%
             filter(franchise_name != input$team) %>%
-            filter(league_pos_rank <= pos_starters_league) %>%
+            filter(pos_ecr <= pos_starters_league) %>%
             filter(roster_pos_rank > pos_starters_team) %>%
-            select(franchise_name, player_name, team, age, roster_pos_rank, pos_ecr_rank)
+            filter(pos_ecr < worstStarter) %>%
+            select(franchise_name, player_name, team, age, value_2qb, pos_ecr,dyn_pos_ecr)
         return(potentialTradeTargets)
+    })
+    
+    output$tradeAway = renderTable({
+        rosterRanks <- rosters %>%
+            filter(franchise_name == input$team) %>%
+            filter(dyn_pos_ecr > pos_starters_league) %>%
+            filter(pos_ecr > pos_starters_league) %>%
+            arrange(-value_2qb) %>%
+            head(5) %>%
+            select(franchise_name, player_name, team, age, value_2qb, pos_ecr,dyn_pos_ecr)
+        print(rosterRanks)
+        return(rosterRanks)
     })
 }
 
