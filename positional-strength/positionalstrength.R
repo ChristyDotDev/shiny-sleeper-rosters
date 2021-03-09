@@ -113,7 +113,6 @@ server <- function(input, output) {
             arrange(-value_2qb) %>%
             head(5) %>%
             select(franchise_name, player_name, team, age, value_2qb, pos_ecr,dyn_pos_ecr)
-        print(rosterRanks)
         return(rosterRanks)
     })
 }
