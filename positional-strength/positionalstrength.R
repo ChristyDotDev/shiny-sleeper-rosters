@@ -6,11 +6,10 @@ library(ggrepel)
 #remotes::install_github("dynastyprocess/fpscrapr")
 library(fpscrapr)
 
-ranks <- fp_rankings(page = "consensus-cheatsheets", sport = "nfl") %>%
-    select(player_id, player_name, player_team_id, pos_rank, tier)
-print(ranks)
+fpRanks <- fp_rankings(page = "consensus-cheatsheets", sport = "nfl") %>%
+    select(player_id, pos_rank)
 
-sleeper_league_id <- 0 #FIXME - configurable or take it in through a form
+sleeper_league_id <- 649923060580864000
 
 player_counts <- tibble(pos = c("QB","RB","WR","TE"), count = c(2,3,3,2))
 
@@ -20,7 +19,13 @@ player_values <- dp_values("values-players.csv") %>%
 league <- sleeper_connect(season = 2021, league_id = sleeper_league_id)
 rosters <- ff_rosters(league) %>%
     left_join(player_values, by = c("player_id"="sleeper_id")) %>%
-    select(franchise_name, player_name, team, age, pos.x, value_2qb)
+    filter(!is.na(fp_id)) %>%
+    mutate(fp_id = as.integer(fp_id)) %>%
+    inner_join(fpRanks, by = c("fp_id"="player_id")) %>%
+    mutate(pos_ecr_rank = as.integer(gsub(".*?([0-9]+).*", "\\1", pos_rank))  ) %>%
+    select(franchise_name, player_name, team, age, pos.x, value_2qb, pos_ecr_rank)
+print(rosters)
+
 teams <- unique(rosters$franchise_name)
     
 ui <- fluidPage(
@@ -49,7 +54,7 @@ server <- function(input, output) {
         group_by(pos.x,franchise_name) %>%
         mutate(roster_pos_rank = rank(desc(value_2qb), na.last = TRUE, ties.method= "min"))
     
-        players_included <- rosters
+    players_included <- rosters
         
     output$graph <- renderPlot({
         if(input$startersOnly){
@@ -81,7 +86,7 @@ server <- function(input, output) {
             filter(franchise_name != input$team) %>%
             filter(league_pos_rank <= pos_starters_league) %>%
             filter(roster_pos_rank > pos_starters_team) %>%
-            select(franchise_name, player_name, team, age, roster_pos_rank)
+            select(franchise_name, player_name, team, age, roster_pos_rank, pos_ecr_rank)
         return(potentialTradeTargets)
     })
 }
