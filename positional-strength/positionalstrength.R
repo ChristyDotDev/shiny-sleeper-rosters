@@ -6,6 +6,8 @@ library(ggrepel)
 #remotes::install_github("dynastyprocess/fpscrapr")
 library(fpscrapr)
 
+player_counts <- tibble(pos = c("QB","RB","WR","TE"), count = c(2,3,3,2))
+
 fpRanks <- fp_rankings(page = "consensus-cheatsheets", sport = "nfl") %>%
     mutate(pos_ecr = as.integer(gsub(".*?([0-9]+).*", "\\1", pos_rank))  ) %>%
     select(player_id, pos_ecr)
@@ -15,7 +17,6 @@ dynEcr <- fp_rankings(page = "dynasty-overall", sport = "nfl") %>%
 
 sleeper_league_id <- 649923060580864000
 
-player_counts <- tibble(pos = c("QB","RB","WR","TE"), count = c(2,3,3,2))
 
 player_values <- dp_values("values-players.csv") %>%
     left_join(dp_playerids(), by = c("fp_id" = "fantasypros_id"))
@@ -23,30 +24,34 @@ player_values <- dp_values("values-players.csv") %>%
 league <- sleeper_connect(season = 2021, league_id = sleeper_league_id)
 rosters <- ff_rosters(league) %>%
     left_join(player_values, by = c("player_id"="sleeper_id")) %>%
-    filter(!is.na(fp_id)) %>%
     mutate(fp_id = as.integer(fp_id)) %>%
-    inner_join(fpRanks, by = c("fp_id"="player_id")) %>%
-    inner_join(dynEcr, by = c("fp_id"="player_id")) %>%
-    select(franchise_name, player_name, team, age, pos.x, value_2qb, pos_ecr, dyn_pos_ecr)
+    left_join(fpRanks, by = c("fp_id"="player_id")) %>%
+    left_join(dynEcr, by = c("fp_id"="player_id")) %>%
+    select(player_id, franchise_name, player_name, team, age, pos.x, value_2qb, pos_ecr, dyn_pos_ecr)
+
+free_agents <- sleeper_players() %>%
+    filter(pos %in% player_counts$pos) %>%
+    left_join(player_values, by = c("player_id"="sleeper_id")) %>%
+    select(player_id, player_name, pos.x, age, value_2qb, ecr_2qb, ecr_pos) %>%
+    filter(!is.na(value_2qb)) %>%
+    filter(!player_id %in% rosters$player_id)
 
 teams <- unique(rosters$franchise_name)
-    
+
 ui <- fluidPage(
     titlePanel("Dynasty Positional Value vs Rest of League"),
 
-    sidebarLayout(
-        sidebarPanel(
-            selectInput("team", "Team", choices = teams, multiple = FALSE)
-        ),
-        mainPanel(
-            "Total value in position on roster (with league min and max)",
+    verticalLayout(
+            HTML("<h4>Total value in position on roster (with league min and max)</h4>"),
+            selectInput("team", "Team", choices = teams, multiple = FALSE),
             checkboxInput("startersOnly", "Starters Only", value = FALSE),
             plotOutput("graph"),
-            "Bench players in the league who could start for you this year",
+            HTML("<h4>Bench players in the league who could start for you this year</h4>"),
             tableOutput("tradeTargets"),
-            "Top valued bench players (Season ECR and Dynasty ECR is outside starting range)",
-            tableOutput("tradeAway")
-        )
+            HTML("<h4>Top valued bench players (Season ECR and Dynasty ECR is outside starting range)</h4>"),
+            tableOutput("tradeAway"),
+            HTML("<h4>Top valued Free agents</h4>"),
+            tableOutput("topFreeAgents")
     )
 )
 
@@ -114,6 +119,13 @@ server <- function(input, output) {
             head(5) %>%
             select(franchise_name, player_name, team, age, value_2qb, pos_ecr,dyn_pos_ecr)
         return(rosterRanks)
+    })
+    
+    output$topFreeAgents = renderTable({
+        topFreeAgents <- free_agents %>%
+            arrange(-value_2qb) %>%
+            head(10)
+        return(topFreeAgents)
     })
 }
 
