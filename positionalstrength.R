@@ -17,7 +17,6 @@ dynEcr <- fp_rankings(page = "dynasty-overall", sport = "nfl") %>%
 
 sleeper_league_id <- 649923060580864000
 
-
 player_values <- dp_values("values-players.csv") %>%
     left_join(dp_playerids(), by = c("fp_id" = "fantasypros_id"))
 
