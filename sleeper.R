@@ -21,14 +21,12 @@ player_values <- dp_values("values-players.csv") %>%
 
 load_rosters <- function(sleeper_league_id) {
     league <- sleeper_connect(season = 2021, league_id = sleeper_league_id)
-    print(league)
     rosters <- ff_rosters(league) %>%
         left_join(player_values, by = c("player_id"="sleeper_id")) %>%
         mutate(fp_id = as.integer(fp_id)) %>%
         left_join(fpRanks, by = c("fp_id"="player_id")) %>%
         left_join(dynEcr, by = c("fp_id"="player_id")) %>%
         select(player_id, franchise_name, player_name, team, age, pos.x, value_2qb, pos_ecr, dyn_pos_ecr)
-    print("league loaded")
     return (rosters)
 }
 
@@ -38,25 +36,21 @@ ui <- fluidPage(
     verticalLayout(
         HTML("<h4>FF Login</h4>"),
         textInput("league_id", "Sleeper League ID", "649923060580864000"),
-        tableOutput("tradeTargets"),
-        actionButton("league_submit", "Load League")
+        actionButton("league_submit", "Load League"),
+        uiOutput('team_select')
     )
 )
 
 server <- function(input, output) {
-    league_info_loaded <- FALSE
     # reactive expression
     league_teams <- eventReactive( input$league_submit, {
-        league_info_loaded <- TRUE
         return(load_rosters(input$league_id))
     })
     
-    output$tradeTargets = renderTable({
-        rosters <- league_teams() 
-        teams <- rosters %>%
+    output$team_select = renderUI({
+        teams <- league_teams() %>%
             distinct(franchise_name)
-        print(teams)
-        return(teams)
+        selectInput('selected_team', 'Team', teams)
     })
 }
 
