@@ -4,8 +4,8 @@ library(tidyverse)
 #remotes::install_github("dynastyprocess/fpscrapr")
 library(fpscrapr)
 
-# TODO - that weird null error that blinks up
 # TODO - picks in roster value
+# TODO - move the heavy lifting to functions
 
 player_counts <- tibble(pos = c("QB","RB","WR","TE"), count = c(2,3,3,2))
 
@@ -77,6 +77,15 @@ server <- function(input, output) {
         return(load_rosters(league))
     })
     
+    league_picks <- eventReactive( input$league_submit, {
+        league <- sleeper_connect(season = 2021, league_id = input$league_id)
+        picks <- ff_draftpicks(league)
+        print("---------------------")
+        print(picks)
+        print("---------------------")
+        return(picks)
+    })
+    
     output$team_select = renderUI({
         teams <- league_teams() %>%
             distinct(franchise_name)
@@ -84,6 +93,7 @@ server <- function(input, output) {
     })
     
     output$graph <- renderPlot({
+        if (is.null(input$selected_team)) return()
         players_included <- league_teams()
         if(input$startersOnly){
             players_included <- players_included %>%
@@ -107,6 +117,7 @@ server <- function(input, output) {
     })
     
     output$tradeTargets = renderTable({
+        if (is.null(input$selected_team)) return()
         rosters <- league_teams()
         teams <- rosters %>% distinct(franchise_name)
         rosterRanks <- rosters %>%
@@ -120,11 +131,12 @@ server <- function(input, output) {
             filter(pos_ecr <= pos_starters_league) %>% # ECR is within a starting range for the position
             filter(roster_pos_rank > pos_starters_team) %>% # they're not a starter on their current team
             filter(pos_ecr < worstStarter) %>% # they are better than the lowest ranked starter on the selected team
-            select(franchise_name, player_name, team, age, value_2qb, pos_ecr,dyn_pos_ecr, worstStarter)
+            select(franchise_name, player_name, team, age, value_2qb, pos_ecr,dyn_pos_ecr)
         return(potentialTradeTargets)
     })
     
     output$tradeAway = renderTable({
+        if (is.null(input$selected_team)) return()
         rosters <- league_teams()
         rosterRanks <- league_teams() %>%
             filter(franchise_name == input$selected_team) %>%
@@ -135,6 +147,10 @@ server <- function(input, output) {
             head(5) %>%
             select(franchise_name, player_name, team, age, value_2qb, pos_ecr,dyn_pos_ecr)
         return(rosterRanks)
+    })
+    
+    output$draftPicks = renderTable({
+        league_picks()
     })
     
     observeEvent(input$selected_team, {
