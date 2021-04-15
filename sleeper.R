@@ -4,6 +4,11 @@ library(tidyverse)
 #remotes::install_github("dynastyprocess/fpscrapr")
 library(fpscrapr)
 
+# TODO - that weird null error that blinks up
+# TODO - picks in roster value
+
+player_counts <- tibble(pos = c("QB","RB","WR","TE"), count = c(2,3,3,2))
+
 fpRanks <- fp_rankings(page = "consensus-cheatsheets", sport = "nfl") %>%
     mutate(pos_ecr = as.integer(gsub(".*?([0-9]+).*", "\\1", pos_rank))  ) %>%
     select(player_id, pos_ecr)
@@ -14,39 +19,62 @@ dynEcr <- fp_rankings(page = "dynasty-overall", sport = "nfl") %>%
 player_values <- dp_values("values-players.csv") %>%
     left_join(dp_playerids(), by = c("fp_id" = "fantasypros_id"))
 
-load_rosters <- function(sleeper_league_id) {
-    league <- sleeper_connect(season = 2021, league_id = sleeper_league_id)
-    rosters <- ff_rosters(league) %>%
+load_rosters <- function(league, teams) {
+    ffrosters <- ff_rosters(league)
+    teams <-ffrosters %>%
+        distinct(franchise_name)
+    rosters <- ffrosters %>%
         left_join(player_values, by = c("player_id"="sleeper_id")) %>%
         mutate(fp_id = as.integer(fp_id)) %>%
         left_join(fpRanks, by = c("fp_id"="player_id")) %>%
         left_join(dynEcr, by = c("fp_id"="player_id")) %>%
-        select(player_id, franchise_name, player_name, team, age, pos.x, value_2qb, pos_ecr, dyn_pos_ecr)
+        select(player_id, franchise_name, player_name, team, age, pos.x, value_2qb, pos_ecr, dyn_pos_ecr) %>%
+        left_join(player_counts, by = c("pos.x" = "pos")) %>%
+        group_by(pos.x) %>%
+        mutate(league_pos_rank = rank(desc(value_2qb), na.last = TRUE, ties.method= "min")) %>%
+        ungroup() %>%
+        mutate(pos_starters_league = count* nrow(teams) ) %>%
+        mutate(pos_starters_team = count) %>%
+        group_by(pos.x,franchise_name) %>%
+        mutate(roster_pos_rank = rank(desc(value_2qb), na.last = TRUE, ties.method= "min")) %>%
+        ungroup()
+
     return (rosters)
 }
 
 ui <- fluidPage(
-    titlePanel("Some Dynasty Thing"),
+    titlePanel("Dynasty Roster Analyser"),
     
     verticalLayout(
-        # Only show this panel if the plot type is a histogram
         conditionalPanel(
+            HTML("<p>Sleeper only for now</p>"),
             condition = ("input.league_submit == 0"), # league_submit button has not been clicked
             HTML("<h4>FF Login</h4>"),
             textInput("league_id", "Sleeper League ID", "649923060580864000"),
             actionButton("league_submit", "Load League")
         ),
         uiOutput('team_select'),
-        textOutput('teamage')
+        conditionalPanel(
+            condition = ("input.league_submit != 0"),
+            HTML("<h4>Roster Value</h4>"),
+            checkboxInput("startersOnly", "Starters Only", value = FALSE),
+            plotOutput("graph"),
+            HTML("<h4>Bench players in the league who could start for you this year</h4>"),
+            tableOutput("tradeTargets"),
+            HTML("<h4>Top valued bench players</h4>"),
+            tableOutput("tradeAway"),
+            HTML("<h4>Top valued Free agents</h4>"),
+            tableOutput("topFreeAgents")
+        )
     )
 )
 
 server <- function(input, output) {
     teamstate <- reactiveValues(data = NULL)
     
-    # reactive expression
     league_teams <- eventReactive( input$league_submit, {
-        return(load_rosters(input$league_id))
+        league <- sleeper_connect(season = 2021, league_id = input$league_id)
+        return(load_rosters(league))
     })
     
     output$team_select = renderUI({
@@ -55,30 +83,76 @@ server <- function(input, output) {
         selectInput('selected_team', 'Team', teams)
     })
     
-    mean_age <- eventReactive(input$selected_team, {
-        print(input$selected_team)
-        print("###################")
-        print(league_teams() %>% filter(franchise_name == input$selected_team))
-        mean_age <- league_teams() %>%
-            filter(franchise_name == input$selected_team) %>%
-            summarise(mean_age = mean(age, na.rm = TRUE)) %>%
-            select(mean_age)
-        return(mean_age)
+    output$graph <- renderPlot({
+        players_included <- league_teams()
+        if(input$startersOnly){
+            players_included <- players_included %>%
+                filter(roster_pos_rank <= count)
+        }
+        roster_pos_values <- players_included %>%
+            group_by(franchise_name, pos.x) %>%
+            summarise(pos_value=sum(value_2qb, na.rm=TRUE))
+        selected_roster <- roster_pos_values %>%
+            filter(franchise_name == input$selected_team)
+        worst <- roster_pos_values %>%
+            group_by(pos.x) %>%
+            summarise(franchise_name="Worst", pos_value=min(pos_value))
+        best <- roster_pos_values %>%
+            group_by(pos.x) %>%
+            summarise(franchise_name="Best", pos_value=max(pos_value))
+        ggplot(selected_roster) +
+            geom_bar( aes(x=pos.x, y=pos_value), stat="identity", fill="skyblue", alpha=0.7) +
+            xlab("Position") + ylab("Total Value") + 
+            geom_errorbar( aes(x=worst$pos.x, ymin=worst$pos_value, ymax=best$pos_value), width=0.4, colour="orange", alpha=0.9, size=1.3)
     })
     
-    mean_age <- observeEvent(input$selected_team, {
-        roster_age <- league_teams() %>%
+    output$tradeTargets = renderTable({
+        rosters <- league_teams()
+        teams <- rosters %>% distinct(franchise_name)
+        rosterRanks <- rosters %>%
             filter(franchise_name == input$selected_team) %>%
-            summarise(mean_age = mean(age, na.rm = TRUE))
-        teamstate$mean_age <-roster_age$mean_age
+            group_by(pos.x) %>%
+            filter(roster_pos_rank <= pos_starters_team) %>%
+            summarise(worstStarter=max(pos_ecr, na.rm=TRUE))
+        potentialTradeTargets <- rosters %>%
+            left_join(rosterRanks, by = c("pos.x" = "pos.x")) %>%
+            filter(franchise_name != input$selected_team) %>% # doesn't play on the selected team
+            filter(pos_ecr <= pos_starters_league) %>% # ECR is within a starting range for the position
+            filter(roster_pos_rank > pos_starters_team) %>% # they're not a starter on their current team
+            filter(pos_ecr < worstStarter) %>% # they are better than the lowest ranked starter on the selected team
+            select(franchise_name, player_name, team, age, value_2qb, pos_ecr,dyn_pos_ecr, worstStarter)
+        return(potentialTradeTargets)
     })
     
-    output$teamage <- renderText({
-        if (is.null(teamstate$mean_age)) return()
-        return(paste("Roster Average Age", teamstate$mean_age))
+    output$tradeAway = renderTable({
+        rosters <- league_teams()
+        rosterRanks <- league_teams() %>%
+            filter(franchise_name == input$selected_team) %>%
+            filter(dyn_pos_ecr > pos_starters_league) %>%
+            filter(roster_pos_rank > pos_starters_team) %>% #Their ECR is outside a starting range next season
+            filter(dyn_pos_ecr > pos_starters_team) %>% #Their Dynasty ECR is outside a starting range
+            arrange(-value_2qb) %>%
+            head(5) %>%
+            select(franchise_name, player_name, team, age, value_2qb, pos_ecr,dyn_pos_ecr)
+        return(rosterRanks)
+    })
+    
+    observeEvent(input$selected_team, {
+        free_agents <- sleeper_players() %>%
+            filter(pos %in% player_counts$pos) %>%
+            left_join(player_values, by = c("player_id"="sleeper_id")) %>%
+            select(player_id, player_name, pos.x, age, value_2qb, ecr_2qb, ecr_pos) %>%
+            filter(!is.na(value_2qb)) %>%
+            filter(!player_id %in% league_teams()$player_id) %>%
+            arrange(-value_2qb) %>%
+            head(10)
+        teamstate$free_agents <- free_agents
+    })
+    
+    output$topFreeAgents = renderTable({
+        if (is.null(teamstate$free_agents)) return()
+        return(teamstate$free_agents)
     })
 }
 
 shinyApp(ui = ui, server = server)
-
-
