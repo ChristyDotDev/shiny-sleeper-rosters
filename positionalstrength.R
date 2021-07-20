@@ -38,8 +38,7 @@ free_agents <- sleeper_players() %>%
 teams <- unique(rosters$franchise_name)
 
 ui <- fluidPage(
-    titlePanel("Dynasty Positional Value vs Rest of League"),
-
+    theme = shinytheme("superhero"),
     verticalLayout(
             HTML("<h4>Total value in position on roster (with league min and max)</h4>"),
             selectInput("team", "Team", choices = teams, multiple = FALSE),
