@@ -15,9 +15,17 @@ conn <- sleeper_connect(season = 2021, league_id = league_id)
 ui <- fluidPage(
   theme = shinytheme("superhero"),
   titlePanel("League Simulator"),
-  uiOutput('output'),
-  titlePanel("Positional MVPs"),
-  uiOutput('mvp')
+  conditionalPanel(
+    condition = "output.loaded == 'LOADED'",
+    uiOutput('output'),
+    titlePanel("Positional MVPs"),
+    uiOutput('mvp')
+  ),
+  conditionalPanel(
+    condition = "output.loaded != 'LOADED'",
+    titlePanel("Loading..."),
+    textOutput('loaded')
+  )
 )
 
 server <- function(input, output) {
@@ -31,7 +39,7 @@ server <- function(input, output) {
     arrange(-h2h_wins, -points_for)
   names(season_summary) <- c('Franchise Name', 'Wins', 'Points For', 'Poential Points For', 'Missed Potential pct')
 
-  output$output = renderTable({
+  output$output <- renderTable({
     return(tibble(season_summary))
   })
   
@@ -43,9 +51,11 @@ server <- function(input, output) {
     group_by(pos) %>%
     arrange(-points) %>%
     summarise(player=first(player), points=first(points), pos=first(pos), team=first(team))
-  output$mvp = renderTable({
+  output$mvp <- renderTable({
     return(tibble(mvps))
   })
+  
+  output$loaded <- renderText('LOADED')
 }
 
 shinyApp(ui = ui, server = server)
