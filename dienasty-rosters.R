@@ -63,7 +63,7 @@ ui <- fluidPage(
 
 server <- function(input, output) {
     teamstate <- reactiveValues(data = NULL)
-    league_id <- '649923060580864000'
+    league_id <- '784483088918028288'
     league <- sleeper_connect(season = 2021, league_id = league_id)
     league_teams <- load_rosters(league)
     league_picks <- ff_draftpicks(league)
